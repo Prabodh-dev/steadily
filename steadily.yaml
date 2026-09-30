@@ -1,0 +1,28 @@
+listen_address: ":8080"
+metrics_address: ":9090"
+mode: "l7"
+algorithm: "round_robin"
+shutdown_timeout: "5s"
+
+health_check:
+  path: "/health"
+  interval: "1s"
+  timeout: "500ms"
+  healthy_threshold: 1
+  unhealthy_threshold: 1
+
+backends:
+  - name: "echo1"
+    address: "echo1:8081"
+  - name: "echo2"
+    address: "echo2:8082"
+  - name: "echo3"
+    address: "echo3:8083"
+
+groups:
+  - name: "main"
+    backends: ["echo1", "echo2", "echo3"]
+
+routes:
+  - path_prefix: "/"
+    group: "main"

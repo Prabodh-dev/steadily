@@ -1,0 +1,39 @@
+services:
+  steadily:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["/app/steadily", "-config", "/app/steadily.yaml"]
+    ports:
+      - "8080:8080"
+      - "9090:9090"
+    volumes:
+      - ./steadily.yaml:/app/steadily.yaml
+    depends_on:
+      - echo1
+      - echo2
+      - echo3
+
+  echo1:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["/app/echo-backend", "-addr", ":8081"]
+    ports:
+      - "8081:8081"
+
+  echo2:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["/app/echo-backend", "-addr", ":8082"]
+    ports:
+      - "8082:8082"
+
+  echo3:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["/app/echo-backend", "-addr", ":8083"]
+    ports:
+      - "8083:8083"
