@@ -140,11 +140,11 @@ func main() {
 		fmt.Printf("  Backend %-15s : %d requests\n", b, count)
 	}
 	fmt.Println("--------------------------------------------")
-	fmt.Println("Phase 1 (Before Backend Kill):")
+	fmt.Println("Before Backend Kill:")
 	for b, count := range phaseBeforeKill {
 		fmt.Printf("  Backend %-15s : %d requests\n", b, count)
 	}
-	fmt.Println("Phase 2 (After Backend Kill):")
+	fmt.Println("After Backend Kill:")
 	for b, count := range phaseAfterKill {
 		fmt.Printf("  Backend %-15s : %d requests\n", b, count)
 	}

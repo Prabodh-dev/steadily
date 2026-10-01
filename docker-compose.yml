@@ -9,10 +9,19 @@ services:
       - "9090:9090"
     volumes:
       - ./steadily.yaml:/app/steadily.yaml
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8080/ || exit 1"]
+      interval: 3s
+      timeout: 2s
+      retries: 3
+      start_period: 3s
     depends_on:
-      - echo1
-      - echo2
-      - echo3
+      echo1:
+        condition: service_healthy
+      echo2:
+        condition: service_healthy
+      echo3:
+        condition: service_healthy
 
   echo1:
     build:
@@ -21,6 +30,12 @@ services:
     command: ["/app/echo-backend", "-addr", ":8081"]
     ports:
       - "8081:8081"
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8081/health || exit 1"]
+      interval: 3s
+      timeout: 2s
+      retries: 3
+      start_period: 2s
 
   echo2:
     build:
@@ -29,6 +44,12 @@ services:
     command: ["/app/echo-backend", "-addr", ":8082"]
     ports:
       - "8082:8082"
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8082/health || exit 1"]
+      interval: 3s
+      timeout: 2s
+      retries: 3
+      start_period: 2s
 
   echo3:
     build:
@@ -37,9 +58,15 @@ services:
     command: ["/app/echo-backend", "-addr", ":8083"]
     ports:
       - "8083:8083"
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8083/health || exit 1"]
+      interval: 3s
+      timeout: 2s
+      retries: 3
+      start_period: 2s
 
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v2.54.1
     container_name: steadily-prometheus
     ports:
       - "9091:9090"
@@ -47,7 +74,7 @@ services:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml
 
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana:11.2.0
     container_name: steadily-grafana
     ports:
       - "3000:3000"

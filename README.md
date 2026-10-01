@@ -1,15 +1,35 @@
 # Steadily Load Balancer
 
-Steadily is a high-availability L4 (TCP) and L7 (HTTP) load balancer written in Go. It distributes traffic across backend servers, detects failure automatically, drains connections gracefully during backend removal, and reloads configuration dynamically without dropping in-flight requests.
+Steadily is an L4 (TCP) and L7 (HTTP) load balancer written in Go that distributes network traffic across backend servers, automatically detects failures via active and passive health checking, drains connection pools gracefully, and reloads configuration dynamically without dropping in-flight requests.
 
 ## Features
 
-- **L4 and L7 Proxying**: Supports raw TCP streaming (L4) and HTTP header-aware routing, path matching, and automatic request retries (L7).
-- **Load Balancing Algorithms**: Round-Robin, Least-Connections, and Consistent Hashing (using a 160-virtual-node ring with low key reshuffling).
-- **Health Checking**: Periodically active TCP/HTTP health checks combined with immediate passive failure detection upon transport errors.
-- **Connection Draining**: Backends marked draining receive no new traffic while allowing in-flight requests to complete up to a configurable timeout.
-- **Hot Config Reloading**: Dynamic configuration watching via `fsnotify` and `SIGHUP` signal handling without dropped requests.
-- **Observability**: Prometheus metrics endpoint (`/metrics`) exposing request rates, error rates, per-backend latency histograms, active backends, and health check failure counters, alongside Grafana dashboards.
+- **L4 and L7 Proxying**: Supports TCP byte streaming (L4) and HTTP header-aware routing, path-prefix matching, and automatic request retries (L7).
+- **Load Balancing Algorithms**: Round-Robin, Least-Connections, and Consistent Hashing (using a 160-virtual-node ring for minimal key reshuffling).
+- **Failover & Health Checking**: Periodic active HTTP/TCP health probes paired with immediate passive failure detection upon transport errors.
+- **Graceful Connection Draining**: Backends marked for removal continue serving in-flight requests until completion or until a configurable timeout expires, while receiving no new requests.
+- **Hot Configuration Reloading**: Dynamic YAML config reload via `fsnotify` file watching or `SIGHUP` signal handling without dropping active requests.
+- **Prometheus Observability**: Pre-configured `/metrics` endpoint exposing request rates, error rates, per-backend latency histograms, active backends, and health check counters.
+
+## Architecture
+
+```mermaid
+graph TD
+    Client[Client Traffic] -->|TCP / HTTP| Steadily[Steadily Load Balancer]
+    Steadily --> Router[Routing & Load Balancing]
+    Router -->|Round Robin / Least Conns / Consistent Hash| Pool[Backend Pool]
+
+    subgraph Core Components
+        Watcher[Config Watcher fsnotify / SIGHUP] --> Pool
+        HealthChecker[Active & Passive Health Checking] --> Pool
+        ControlEndpoint[Control Endpoint /admin/drain] --> Pool
+        MetricsExporter[Prometheus Metrics Exporter /metrics]
+    end
+
+    Pool --> Echo1[Backend Server 1]
+    Pool --> Echo2[Backend Server 2]
+    Pool --> Echo3[Backend Server 3]
+```
 
 ## Quickstart
 
@@ -18,32 +38,35 @@ Steadily is a high-availability L4 (TCP) and L7 (HTTP) load balancer written in 
 - Go 1.22+
 - Docker and Docker Compose
 
-### Building and Running Locally
-
-```bash
-# Build binary
-go build ./cmd/steadily
-
-# Run tests
-go test ./...
-
-# Run Steadily with configuration
-./steadily -config steadily.yaml
-```
-
 ### Running with Docker Compose
 
-To launch Steadily along with 3 echo backend instances, Prometheus, and Grafana:
+Launch Steadily alongside 3 backend instances, Prometheus, and Grafana:
 
 ```bash
 docker compose up -d --build
 ```
 
-Access points:
-- Steadily Proxy: `http://localhost:8080/`
-- Prometheus Metrics: `http://localhost:9090/metrics`
-- Prometheus Server UI: `http://localhost:9091`
-- Grafana Dashboard: `http://localhost:3000` (provisioned dashboard)
+Access services at:
+- **Proxy Endpoint**: `http://localhost:8080/`
+- **Prometheus Metrics**: `http://localhost:9090/metrics`
+- **Prometheus UI**: `http://localhost:9091`
+- **Grafana Dashboard**: `http://localhost:3000` (pre-configured dashboard)
+
+Run the backend kill demo to verify zero dropped requests during mid-traffic failure:
+
+```bash
+go run ./scripts/demo-kill
+```
+
+### Running Locally
+
+```bash
+# Build binary
+go build ./cmd/steadily
+
+# Run binary with config
+./steadily -config steadily.yaml
+```
 
 ## Configuration Reference
 
@@ -54,7 +77,7 @@ listen_address: ":8080"
 metrics_address: ":9090"
 mode: "l7" # "l4" or "l7"
 algorithm: "round_robin" # "round_robin", "least_connections", "consistent_hashing"
-consistent_hash_key: "header:X-User-ID" # "header:<Name>", "cookie:<Name>", or "client_ip"
+consistent_hash_key: "header:X-User-ID" # "header:<Name>", "cookie:<Name>", or client IP
 shutdown_timeout: "5s"
 drain_timeout: "10s"
 
@@ -86,34 +109,36 @@ routes:
     group: "main"
 ```
 
-## Control Endpoint
+## Admin Control API
 
-Mark a backend as draining via control API:
+Mark a backend as draining via HTTP POST:
 
 ```bash
 curl -X POST "http://localhost:8080/admin/drain?backend=echo1"
 ```
 
-## Demo and Test Scripts
+## Running Tests and Benchmarks
 
-- **Demo Kill Backend**: Fires concurrent requests while killing a backend container mid-stream:
-  ```bash
-  go run ./scripts/demo-kill.go
-  ```
+```bash
+# Unit and integration tests
+go test ./...
 
-- **Chaos Test**: Continuously sends traffic while randomly killing and restarting containers:
-  ```bash
-  go run ./scripts/chaos.go
-  ```
+# Code analysis
+go vet ./...
 
-- **Benchmark Suite**: Benchmarks throughput and p50/p95/p99 latency added by Steadily across algorithms and concurrency levels, updating `docs/benchmarks.md`:
-  ```bash
-  go run ./scripts/bench.go
-  ```
+# Chaos test suite
+go run ./scripts/chaos
 
-## Development Commands
+# Benchmark suite (updates docs/benchmarks.md)
+go run ./scripts/bench
+```
 
-- `go build ./...`
-- `go vet ./...`
-- `go test ./...`
-- `docker compose up -d`
+Measured throughput reaches up to 9,726 req/sec under 200 concurrent connections in in-process benchmarks (see [docs/benchmarks.md](docs/benchmarks.md)).
+
+## Contributing
+
+For guidelines on repository structure, invariants, and code conventions, see [AGENTS.md](AGENTS.md).
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
