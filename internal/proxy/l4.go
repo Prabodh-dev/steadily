@@ -89,8 +89,15 @@ func (p *L4Proxy) handleConn(clientConn net.Conn) {
 
 	triedBackends := make(map[string]bool)
 
+	clientIP, _, ipErr := net.SplitHostPort(clientConn.RemoteAddr().String())
+	if ipErr != nil || clientIP == "" {
+		clientIP = clientConn.RemoteAddr().String()
+	}
+	connCtx := balance.WithKey(p.ctx, clientIP)
+	algoName := p.pool.AlgorithmName()
+
 	for attempt := 0; attempt < maxRetries; attempt++ {
-		backend, nextErr := group.Algorithm.Next(p.ctx, group.Backends)
+		backend, nextErr := group.Algorithm.Next(connCtx, group.Backends)
 		if nextErr != nil {
 			break
 		}
@@ -113,7 +120,7 @@ func (p *L4Proxy) handleConn(clientConn net.Conn) {
 		dialer := net.Dialer{Timeout: p.dialTimeout}
 		conn, dialErr := dialer.DialContext(p.ctx, "tcp", backend.Address)
 		if dialErr != nil {
-			metrics.RequestsTotal.WithLabelValues(backend.Address, "failure").Inc()
+			metrics.RequestsTotal.WithLabelValues(backend.Address, algoName, "failure").Inc()
 			p.pool.RecordPassiveFailure(backend)
 			slog.Warn("l4 backend tcp dial failed", "backend", backend.Address, "error", dialErr, "request_id", reqID)
 			continue
@@ -121,7 +128,7 @@ func (p *L4Proxy) handleConn(clientConn net.Conn) {
 
 		backendConn = conn
 		chosenBackend = backend
-		metrics.RequestsTotal.WithLabelValues(backend.Address, "success").Inc()
+		metrics.RequestsTotal.WithLabelValues(backend.Address, algoName, "success").Inc()
 		break
 	}
 
@@ -130,6 +137,11 @@ func (p *L4Proxy) handleConn(clientConn net.Conn) {
 		return
 	}
 	defer backendConn.Close()
+
+	start := time.Now()
+	defer func() {
+		metrics.RequestDuration.WithLabelValues(chosenBackend.Address).Observe(time.Since(start).Seconds())
+	}()
 
 	chosenBackend.IncrConnections()
 	defer chosenBackend.DecrConnections()

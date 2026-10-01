@@ -21,9 +21,10 @@ type HealthCheckConfig struct {
 }
 
 type BackendConfig struct {
-	Name    string `yaml:"name"`
-	Address string `yaml:"address"`
-	Weight  int    `yaml:"weight"`
+	Name     string `yaml:"name"`
+	Address  string `yaml:"address"`
+	Weight   int    `yaml:"weight"`
+	Draining bool   `yaml:"draining"`
 }
 
 type GroupConfig struct {
@@ -37,16 +38,19 @@ type RouteConfig struct {
 }
 
 type Config struct {
-	ListenAddress   string            `yaml:"listen_address"`
-	MetricsAddress  string            `yaml:"metrics_address"`
-	Mode            string            `yaml:"mode"`
-	Algorithm       string            `yaml:"algorithm"`
-	ShutdownTimeout time.Duration     `yaml:"-"`
-	ShutdownRaw     string            `yaml:"shutdown_timeout"`
-	HealthCheck     HealthCheckConfig `yaml:"health_check"`
-	Backends        []BackendConfig   `yaml:"backends"`
-	Groups          []GroupConfig     `yaml:"groups"`
-	Routes          []RouteConfig     `yaml:"routes"`
+	ListenAddress     string            `yaml:"listen_address"`
+	MetricsAddress    string            `yaml:"metrics_address"`
+	Mode              string            `yaml:"mode"`
+	Algorithm         string            `yaml:"algorithm"`
+	ConsistentHashKey string            `yaml:"consistent_hash_key"`
+	ShutdownTimeout   time.Duration     `yaml:"-"`
+	ShutdownRaw       string            `yaml:"shutdown_timeout"`
+	DrainTimeout      time.Duration     `yaml:"-"`
+	DrainRaw          string            `yaml:"drain_timeout"`
+	HealthCheck       HealthCheckConfig `yaml:"health_check"`
+	Backends          []BackendConfig   `yaml:"backends"`
+	Groups            []GroupConfig     `yaml:"groups"`
+	Routes            []RouteConfig     `yaml:"routes"`
 }
 
 func Load(path string) (*Config, error) {
@@ -89,6 +93,16 @@ func (c *Config) parseDurations() error {
 		c.ShutdownTimeout = 10 * time.Second
 	}
 
+	if c.DrainRaw != "" {
+		d, err := time.ParseDuration(c.DrainRaw)
+		if err != nil {
+			return fmt.Errorf("invalid drain_timeout '%s': %w", c.DrainRaw, err)
+		}
+		c.DrainTimeout = d
+	} else {
+		c.DrainTimeout = 10 * time.Second
+	}
+
 	if c.HealthCheck.IntervalRaw != "" {
 		d, err := time.ParseDuration(c.HealthCheck.IntervalRaw)
 		if err != nil {
@@ -119,12 +133,16 @@ func (c *Config) Validate() error {
 	}
 
 	c.Algorithm = strings.ToLower(strings.TrimSpace(c.Algorithm))
-	if c.Algorithm != "round_robin" && c.Algorithm != "least_connections" {
-		return fmt.Errorf("invalid algorithm '%s': must be 'round_robin' or 'least_connections'", c.Algorithm)
+	if c.Algorithm != "round_robin" && c.Algorithm != "least_connections" && c.Algorithm != "consistent_hashing" {
+		return fmt.Errorf("invalid algorithm '%s': must be 'round_robin', 'least_connections', or 'consistent_hashing'", c.Algorithm)
 	}
 
 	if c.ShutdownTimeout <= 0 {
-		return fmt.Errorf("shutdown_timeout must be greater than 0")
+		c.ShutdownTimeout = 10 * time.Second
+	}
+
+	if c.DrainTimeout <= 0 {
+		c.DrainTimeout = 10 * time.Second
 	}
 
 	if c.HealthCheck.Interval <= 0 {

@@ -22,6 +22,7 @@ type Checker struct {
 	client     *http.Client
 	onState    StateChangeCallback
 	mu         sync.RWMutex
+	checkCtx   context.Context
 	cancelFunc context.CancelFunc
 	wg         sync.WaitGroup
 }
@@ -48,12 +49,23 @@ func NewChecker(cfg config.HealthCheckConfig, mode string, onState StateChangeCa
 func (c *Checker) Start(ctx context.Context, backends []*balance.Backend) {
 	c.mu.Lock()
 	checkCtx, cancel := context.WithCancel(ctx)
+	c.checkCtx = checkCtx
 	c.cancelFunc = cancel
 	c.mu.Unlock()
 
 	for _, b := range backends {
 		c.wg.Add(1)
 		go c.runLoop(checkCtx, b)
+	}
+}
+
+func (c *Checker) AddBackend(b *balance.Backend) {
+	c.mu.RLock()
+	ctx := c.checkCtx
+	c.mu.RUnlock()
+	if ctx != nil {
+		c.wg.Add(1)
+		go c.runLoop(ctx, b)
 	}
 }
 
@@ -70,12 +82,19 @@ func (c *Checker) runLoop(ctx context.Context, b *balance.Backend) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			if b.State() == balance.StateDraining || b.State() == balance.StateRemoved {
+				return
+			}
 			c.checkBackend(ctx, b)
 		}
 	}
 }
 
 func (c *Checker) checkBackend(ctx context.Context, b *balance.Backend) {
+	if b.State() == balance.StateDraining || b.State() == balance.StateRemoved {
+		return
+	}
+
 	start := time.Now()
 	var err error
 
@@ -118,6 +137,7 @@ func (c *Checker) checkBackend(ctx context.Context, b *balance.Backend) {
 			}
 		}
 	} else {
+		metrics.HealthCheckFailuresTotal.WithLabelValues(b.Address).Inc()
 		metrics.HealthCheckDuration.WithLabelValues(b.Address, "unhealthy").Observe(duration.Seconds())
 		changed := b.MarkFailure(c.cfg.UnhealthyThreshold)
 		if changed {
@@ -134,6 +154,10 @@ func (c *Checker) CheckBackendForTest(ctx context.Context, b *balance.Backend) {
 }
 
 func (c *Checker) RecordPassiveFailure(b *balance.Backend) {
+	if b.State() == balance.StateDraining || b.State() == balance.StateRemoved {
+		return
+	}
+	metrics.HealthCheckFailuresTotal.WithLabelValues(b.Address).Inc()
 	changed := b.MarkFailure(c.cfg.UnhealthyThreshold)
 	if changed {
 		slog.Warn("backend passive failure threshold reached, state changed", "backend", b.Name, "address", b.Address, "state", b.State().String())

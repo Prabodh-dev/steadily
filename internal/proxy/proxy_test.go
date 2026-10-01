@@ -213,3 +213,251 @@ func TestL7PathRoutingAndHeaders(t *testing.T) {
 		t.Errorf("expected X-Custom-Header api-val, got %s", resp.Header.Get("X-Custom-Header"))
 	}
 }
+
+func TestConnectionDraining(t *testing.T) {
+	s1SlowStarted := make(chan struct{})
+	s1SlowComplete := make(chan struct{})
+
+	s1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/slow" {
+			close(s1SlowStarted)
+			time.Sleep(300 * time.Millisecond)
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("b1-slow-response"))
+			close(s1SlowComplete)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("b1"))
+	}))
+	defer s1.Close()
+
+	s2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("b2"))
+	}))
+	defer s2.Close()
+
+	cfg := &config.Config{
+		ListenAddress:   ":0",
+		Mode:            "l7",
+		Algorithm:       "round_robin",
+		ShutdownTimeout: 2 * time.Second,
+		DrainTimeout:    3 * time.Second,
+		HealthCheck: config.HealthCheckConfig{
+			Path:               "/",
+			Interval:           500 * time.Millisecond,
+			Timeout:            200 * time.Millisecond,
+			HealthyThreshold:   1,
+			UnhealthyThreshold: 1,
+		},
+		Backends: []config.BackendConfig{
+			{Name: "b1", Address: s1.Listener.Addr().String(), Weight: 1},
+			{Name: "b2", Address: s2.Listener.Addr().String(), Weight: 1},
+		},
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("cfg validate error: %v", err)
+	}
+
+	pool, err := proxy.NewPool(cfg)
+	if err != nil {
+		t.Fatalf("pool creation error: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	pool.Start(ctx)
+	defer pool.Stop()
+
+	l7Proxy := proxy.NewL7Proxy(pool)
+	ts := httptest.NewServer(l7Proxy)
+	defer ts.Close()
+
+	time.Sleep(100 * time.Millisecond)
+
+	var slowRespBody string
+	var slowErr error
+	slowDone := make(chan struct{})
+
+	go func() {
+		defer close(slowDone)
+		resp, err := http.Get(ts.URL + "/slow")
+		if err != nil {
+			slowErr = err
+			return
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		slowRespBody = string(b)
+	}()
+
+	<-s1SlowStarted
+
+	err = pool.DrainBackend("b1", 3*time.Second)
+	if err != nil {
+		t.Fatalf("failed to drain b1: %v", err)
+	}
+
+	client := &http.Client{Timeout: 2 * time.Second}
+	var newReqResponses []string
+	for i := 0; i < 20; i++ {
+		resp, err := client.Get(ts.URL + "/fast")
+		if err != nil {
+			t.Fatalf("new request failed during drain: %v", err)
+		}
+		b, _ := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		newReqResponses = append(newReqResponses, string(b))
+	}
+
+	<-slowDone
+
+	if slowErr != nil {
+		t.Fatalf("in-flight slow request failed: %v", slowErr)
+	}
+	if slowRespBody != "b1-slow-response" {
+		t.Errorf("expected slow response 'b1-slow-response', got %q", slowRespBody)
+	}
+
+	for i, respStr := range newReqResponses {
+		if respStr == "b1" {
+			t.Errorf("new request %d reached draining backend b1!", i)
+		}
+		if respStr != "b2" {
+			t.Errorf("expected new request %d to reach b2, got %q", i, respStr)
+		}
+	}
+}
+
+func TestHotConfigReload(t *testing.T) {
+	s1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("b1"))
+	}))
+	defer s1.Close()
+
+	s2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("b2"))
+	}))
+	defer s2.Close()
+
+	s3 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("b3"))
+	}))
+	defer s3.Close()
+
+	cfg1 := &config.Config{
+		ListenAddress:   ":0",
+		Mode:            "l7",
+		Algorithm:       "round_robin",
+		ShutdownTimeout: 2 * time.Second,
+		DrainTimeout:    3 * time.Second,
+		HealthCheck: config.HealthCheckConfig{
+			Path:               "/",
+			Interval:           500 * time.Millisecond,
+			Timeout:            200 * time.Millisecond,
+			HealthyThreshold:   1,
+			UnhealthyThreshold: 1,
+		},
+		Backends: []config.BackendConfig{
+			{Name: "b1", Address: s1.Listener.Addr().String(), Weight: 1},
+			{Name: "b2", Address: s2.Listener.Addr().String(), Weight: 1},
+		},
+	}
+	_ = cfg1.Validate()
+
+	pool, err := proxy.NewPool(cfg1)
+	if err != nil {
+		t.Fatalf("pool creation error: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	pool.Start(ctx)
+	defer pool.Stop()
+
+	l7Proxy := proxy.NewL7Proxy(pool)
+	ts := httptest.NewServer(l7Proxy)
+	defer ts.Close()
+
+	time.Sleep(100 * time.Millisecond)
+
+	totalRequests := 200
+	var wg sync.WaitGroup
+	var successCount int64
+	var failCount int64
+
+	client := &http.Client{Timeout: 3 * time.Second}
+	var mu sync.Mutex
+	responses := make(map[string]int)
+
+	for i := 0; i < totalRequests; i++ {
+		wg.Add(1)
+		reqNum := i
+		go func() {
+			defer wg.Done()
+
+			if reqNum == 60 {
+				cfg2 := &config.Config{
+					ListenAddress:   ":0",
+					Mode:            "l7",
+					Algorithm:       "round_robin",
+					ShutdownTimeout: 2 * time.Second,
+					DrainTimeout:    3 * time.Second,
+					HealthCheck: config.HealthCheckConfig{
+						Path:               "/",
+						Interval:           500 * time.Millisecond,
+						Timeout:            200 * time.Millisecond,
+						HealthyThreshold:   1,
+						UnhealthyThreshold: 1,
+					},
+					Backends: []config.BackendConfig{
+						{Name: "b2", Address: s2.Listener.Addr().String(), Weight: 1},
+						{Name: "b3", Address: s3.Listener.Addr().String(), Weight: 1},
+					},
+				}
+				_ = cfg2.Validate()
+				if updateErr := pool.UpdateConfig(cfg2); updateErr != nil {
+					t.Errorf("hot reload failed: %v", updateErr)
+				}
+			}
+
+			resp, err := client.Get(ts.URL)
+			if err != nil {
+				atomic.AddInt64(&failCount, 1)
+				return
+			}
+			body, _ := io.ReadAll(resp.Body)
+			_ = resp.Body.Close()
+
+			if resp.StatusCode == http.StatusOK {
+				atomic.AddInt64(&successCount, 1)
+				mu.Lock()
+				responses[string(body)]++
+				mu.Unlock()
+			} else {
+				atomic.AddInt64(&failCount, 1)
+			}
+		}()
+
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	wg.Wait()
+
+	if failCount > 0 {
+		t.Fatalf("expected 0 failed requests during hot config reload, got %d", failCount)
+	}
+	if successCount != int64(totalRequests) {
+		t.Fatalf("expected %d successful requests, got %d", totalRequests, successCount)
+	}
+	if responses["b3"] == 0 {
+		t.Errorf("expected new backend b3 to receive traffic after reload, got 0 requests")
+	}
+}
+

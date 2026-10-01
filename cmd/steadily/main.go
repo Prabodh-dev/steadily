@@ -49,9 +49,32 @@ func main() {
 		slog.Warn("config watcher start failed", "error", err)
 	}
 
+	sighupChan := make(chan os.Signal, 1)
+	signal.Notify(sighupChan, syscall.SIGHUP)
+	go func() {
+		for {
+			select {
+			case <-mainCtx.Done():
+				return
+			case <-sighupChan:
+				slog.Info("received SIGHUP, reloading configuration")
+				newCfg, reloadErr := config.Load(*configPath)
+				if reloadErr != nil {
+					slog.Error("failed to reload configuration on SIGHUP", "error", reloadErr)
+				} else if applyErr := pool.UpdateConfig(newCfg); applyErr != nil {
+					slog.Error("failed to apply reloaded configuration on SIGHUP", "error", applyErr)
+				} else {
+					slog.Info("successfully reloaded configuration on SIGHUP")
+				}
+			}
+		}
+	}()
+
 	if cfg.MetricsAddress != "" {
 		metricsMux := http.NewServeMux()
 		metricsMux.Handle("/metrics", metrics.Handler())
+		metricsMux.HandleFunc("/admin/drain", pool.HandleDrain)
+		metricsMux.HandleFunc("/drain", pool.HandleDrain)
 		metricsServer := &http.Server{
 			Addr:    cfg.MetricsAddress,
 			Handler: metricsMux,
@@ -74,10 +97,12 @@ func main() {
 	if cfg.Mode == "l7" {
 		l7Proxy := proxy.NewL7Proxy(pool)
 		mux := http.NewServeMux()
-		mux.Handle("/", l7Proxy)
+		mux.HandleFunc("/admin/drain", pool.HandleDrain)
+		mux.HandleFunc("/drain", pool.HandleDrain)
 		if cfg.MetricsAddress == "" {
 			mux.Handle("/metrics", metrics.Handler())
 		}
+		mux.Handle("/", l7Proxy)
 
 		httpServer = &http.Server{
 			Addr:    cfg.ListenAddress,

@@ -96,3 +96,91 @@ func TestLeastConnections(t *testing.T) {
 		}
 	}
 }
+
+func TestConsistentHash(t *testing.T) {
+	b1 := balance.NewBackend("b1", "127.0.0.1:8081", 1)
+	b2 := balance.NewBackend("b2", "127.0.0.1:8082", 1)
+	b1.SetState(balance.StateHealthy)
+	b2.SetState(balance.StateHealthy)
+
+	ch := balance.NewConsistentHash()
+	backends := []*balance.Backend{b1, b2}
+
+	ctx1 := balance.WithKey(context.Background(), "user-123")
+	got1, err := ch.Next(ctx1, backends)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	got2, err := ch.Next(ctx1, backends)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if got1.Name != got2.Name {
+		t.Errorf("expected same backend for same key, got %s and %s", got1.Name, got2.Name)
+	}
+}
+
+func TestConsistentHashReshuffle(t *testing.T) {
+	b1 := balance.NewBackend("b1", "127.0.0.1:8081", 1)
+	b2 := balance.NewBackend("b2", "127.0.0.1:8082", 1)
+	b3 := balance.NewBackend("b3", "127.0.0.1:8083", 1)
+	b4 := balance.NewBackend("b4", "127.0.0.1:8084", 1)
+	b5 := balance.NewBackend("b5", "127.0.0.1:8085", 1)
+
+	b1.SetState(balance.StateHealthy)
+	b2.SetState(balance.StateHealthy)
+	b3.SetState(balance.StateHealthy)
+	b4.SetState(balance.StateHealthy)
+	b5.SetState(balance.StateHealthy)
+
+	ch := balance.NewConsistentHash()
+
+	initialPool := []*balance.Backend{b1, b2, b3, b4}
+	expandedPool := []*balance.Backend{b1, b2, b3, b4, b5}
+
+	numKeys := 1000
+	initialAssignments := make(map[int]string)
+	moduloInitial := make(map[int]int)
+
+	for i := 0; i < numKeys; i++ {
+		keyStr := balance.WithKey(context.Background(), "client-ip-"+string(rune(i)))
+		b, err := ch.Next(keyStr, initialPool)
+		if err != nil {
+			t.Fatalf("failed initial assignment for key %d: %v", i, err)
+		}
+		initialAssignments[i] = b.Name
+		moduloInitial[i] = i % 4
+	}
+
+	chReshufflings := 0
+	moduloReshufflings := 0
+
+	for i := 0; i < numKeys; i++ {
+		keyStr := balance.WithKey(context.Background(), "client-ip-"+string(rune(i)))
+		b, err := ch.Next(keyStr, expandedPool)
+		if err != nil {
+			t.Fatalf("failed expanded assignment for key %d: %v", i, err)
+		}
+		if b.Name != initialAssignments[i] {
+			chReshufflings++
+		}
+		if (i % 5) != moduloInitial[i] {
+			moduloReshufflings++
+		}
+	}
+
+	chPct := float64(chReshufflings) / float64(numKeys) * 100
+	modPct := float64(moduloReshufflings) / float64(numKeys) * 100
+
+	t.Logf("Reshuffling percentage: Consistent Hashing = %.2f%%, Modulo Hashing = %.2f%%", chPct, modPct)
+
+	if chPct >= modPct {
+		t.Errorf("expected consistent hashing reshuffle (%.2f%%) to be lower than modulo hashing (%.2f%%)", chPct, modPct)
+	}
+	if chPct > 35.0 {
+		t.Errorf("consistent hashing reshuffle rate higher than expected: %.2f%%", chPct)
+	}
+}
+

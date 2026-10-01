@@ -42,6 +42,31 @@ func NewL7Proxy(pool *Pool) *L7Proxy {
 	}
 }
 
+func (p *L7Proxy) extractKey(r *http.Request) string {
+	hashKeySpec := p.pool.ConsistentHashKey()
+	if hashKeySpec != "" {
+		if len(hashKeySpec) > 7 && (hashKeySpec[:7] == "header:" || hashKeySpec[:7] == "Header:") {
+			headerName := hashKeySpec[7:]
+			if val := r.Header.Get(headerName); val != "" {
+				return val
+			}
+		} else if len(hashKeySpec) > 7 && (hashKeySpec[:7] == "cookie:" || hashKeySpec[:7] == "Cookie:") {
+			cookieName := hashKeySpec[7:]
+			if cookie, err := r.Cookie(cookieName); err == nil && cookie.Value != "" {
+				return cookie.Value
+			}
+		} else if val := r.Header.Get(hashKeySpec); val != "" {
+			return val
+		}
+	}
+
+	clientIP, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err == nil && clientIP != "" {
+		return clientIP
+	}
+	return r.RemoteAddr
+}
+
 func (p *L7Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	reqID := r.Header.Get("X-Request-ID")
 	if reqID == "" {
@@ -70,9 +95,11 @@ func (p *L7Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	triedBackends := make(map[string]bool)
+	key := p.extractKey(r)
+	reqCtx := balance.WithKey(r.Context(), key)
 
 	for attempt := 0; attempt < maxRetries; attempt++ {
-		backend, nextErr := group.Algorithm.Next(r.Context(), group.Backends)
+		backend, nextErr := group.Algorithm.Next(reqCtx, group.Backends)
 		if nextErr != nil {
 			break
 		}
@@ -106,6 +133,11 @@ func (p *L7Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (p *L7Proxy) proxyToBackend(w http.ResponseWriter, r *http.Request, b *balance.Backend, reqID string, bodyBytes []byte) bool {
+	start := time.Now()
+	defer func() {
+		metrics.RequestDuration.WithLabelValues(b.Address).Observe(time.Since(start).Seconds())
+	}()
+
 	targetURL := fmt.Sprintf("http://%s%s", b.Address, r.URL.RequestURI())
 
 	var bodyReader io.Reader
@@ -142,11 +174,12 @@ func (p *L7Proxy) proxyToBackend(w http.ResponseWriter, r *http.Request, b *bala
 	outReq.Header.Set("X-Request-ID", reqID)
 
 	resp, err := p.transport.RoundTrip(outReq)
+	algoName := p.pool.AlgorithmName()
 	if err != nil || resp.StatusCode == http.StatusBadGateway || resp.StatusCode == http.StatusServiceUnavailable || resp.StatusCode == http.StatusGatewayTimeout {
 		if resp != nil {
 			_ = resp.Body.Close()
 		}
-		metrics.RequestsTotal.WithLabelValues(b.Address, "failure").Inc()
+		metrics.RequestsTotal.WithLabelValues(b.Address, algoName, "failure").Inc()
 		p.pool.RecordPassiveFailure(b)
 		if err != nil {
 			slog.Warn("proxy request to backend failed", "backend", b.Address, "error", err, "request_id", reqID)
@@ -157,7 +190,7 @@ func (p *L7Proxy) proxyToBackend(w http.ResponseWriter, r *http.Request, b *bala
 	}
 	defer resp.Body.Close()
 
-	metrics.RequestsTotal.WithLabelValues(b.Address, "success").Inc()
+	metrics.RequestsTotal.WithLabelValues(b.Address, algoName, "success").Inc()
 
 	for k, vv := range resp.Header {
 		for _, v := range vv {
