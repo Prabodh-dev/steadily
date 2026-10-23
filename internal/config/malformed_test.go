@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"steadily/internal/config"
+	"github.com/Prabodh-dev/steadily/internal/config"
 )
 
 const validBase = `

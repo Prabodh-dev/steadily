@@ -1,4 +1,4 @@
-module steadily
+module github.com/Prabodh-dev/steadily
 
 go 1.26.1
 

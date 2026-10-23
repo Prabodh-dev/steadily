@@ -10,8 +10,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"steadily/internal/balance"
-	"steadily/internal/metrics"
+	"github.com/Prabodh-dev/steadily/internal/balance"
+	"github.com/Prabodh-dev/steadily/internal/metrics"
 )
 
 var requestIDCounter uint64

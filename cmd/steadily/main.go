@@ -10,9 +10,9 @@ import (
 	"os/signal"
 	"syscall"
 
-	"steadily/internal/config"
-	"steadily/internal/metrics"
-	"steadily/internal/proxy"
+	"github.com/Prabodh-dev/steadily/internal/config"
+	"github.com/Prabodh-dev/steadily/internal/metrics"
+	"github.com/Prabodh-dev/steadily/internal/proxy"
 )
 
 var version = "dev"

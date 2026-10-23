@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"steadily/internal/config"
-	"steadily/internal/proxy"
+	"github.com/Prabodh-dev/steadily/internal/config"
+	"github.com/Prabodh-dev/steadily/internal/proxy"
 )
 
 func newAdminTestPool(t *testing.T) *proxy.Pool {

@@ -5,7 +5,7 @@ import (
 	"sync"
 	"testing"
 
-	"steadily/internal/balance"
+	"github.com/Prabodh-dev/steadily/internal/balance"
 )
 
 func TestRoundRobin(t *testing.T) {

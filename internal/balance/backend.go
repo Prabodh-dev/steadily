@@ -4,7 +4,7 @@ import (
 	"log/slog"
 	"sync/atomic"
 
-	"steadily/internal/metrics"
+	"github.com/Prabodh-dev/steadily/internal/metrics"
 )
 
 type HealthState int32

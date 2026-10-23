@@ -9,10 +9,10 @@ import (
 	"sync"
 	"time"
 
-	"steadily/internal/balance"
-	"steadily/internal/config"
-	"steadily/internal/health"
-	"steadily/internal/metrics"
+	"github.com/Prabodh-dev/steadily/internal/balance"
+	"github.com/Prabodh-dev/steadily/internal/config"
+	"github.com/Prabodh-dev/steadily/internal/health"
+	"github.com/Prabodh-dev/steadily/internal/metrics"
 )
 
 type BackendGroup struct {

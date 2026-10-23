@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"steadily/internal/config"
+	"github.com/Prabodh-dev/steadily/internal/config"
 )
 
 func TestConfigValidation(t *testing.T) {
