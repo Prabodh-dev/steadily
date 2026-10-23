@@ -15,9 +15,17 @@ import (
 	"steadily/internal/proxy"
 )
 
+var version = "dev"
+
 func main() {
 	configPath := flag.String("config", "", "path to config file")
+	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Println(version)
+		return
+	}
 
 	cfg, err := config.Load(*configPath)
 	if err != nil {
