@@ -43,6 +43,7 @@ type Config struct {
 	Mode              string            `yaml:"mode"`
 	Algorithm         string            `yaml:"algorithm"`
 	ConsistentHashKey string            `yaml:"consistent_hash_key"`
+	AdminToken        string            `yaml:"admin_token"`
 	ShutdownTimeout   time.Duration     `yaml:"-"`
 	ShutdownRaw       string            `yaml:"shutdown_timeout"`
 	DrainTimeout      time.Duration     `yaml:"-"`
@@ -69,6 +70,10 @@ func Load(path string) (*Config, error) {
 	var cfg Config
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse yaml config: %w", err)
+	}
+
+	if token := os.Getenv("STEADILY_ADMIN_TOKEN"); token != "" {
+		cfg.AdminToken = token
 	}
 
 	if err := cfg.parseDurations(); err != nil {

@@ -80,6 +80,7 @@ algorithm: "round_robin" # "round_robin", "least_connections", "consistent_hashi
 consistent_hash_key: "header:X-User-ID" # "header:<Name>", "cookie:<Name>", or client IP
 shutdown_timeout: "5s"
 drain_timeout: "10s"
+admin_token: ""         # optional bearer token for POST /admin/drain on metrics_address
 
 health_check:
   path: "/health"
@@ -111,11 +112,14 @@ routes:
 
 ## Admin Control API
 
-Mark a backend as draining via HTTP POST:
+Mark a backend as draining via HTTP POST. The endpoint is served only on `metrics_address`, never on the public listener:
 
 ```bash
-curl -X POST "http://localhost:8080/admin/drain?backend=echo1"
+curl -X POST -H "Authorization: Bearer $STEADILY_ADMIN_TOKEN" \
+  "http://localhost:9090/admin/drain?backend=echo1"
 ```
+
+Set `admin_token` in the config (or the `STEADILY_ADMIN_TOKEN` environment variable) to require a bearer token. Without a token the endpoint is unauthenticated, so bind `metrics_address` to a trusted interface such as `127.0.0.1:9090`.
 
 ## Running Tests and Benchmarks
 

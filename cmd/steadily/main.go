@@ -73,8 +73,10 @@ func main() {
 	if cfg.MetricsAddress != "" {
 		metricsMux := http.NewServeMux()
 		metricsMux.Handle("/metrics", metrics.Handler())
-		metricsMux.HandleFunc("/admin/drain", pool.HandleDrain)
-		metricsMux.HandleFunc("/drain", pool.HandleDrain)
+		metricsMux.Handle("/admin/drain", pool.AdminHandler(cfg.AdminToken))
+		if cfg.AdminToken == "" {
+			slog.Warn("admin endpoint has no admin_token; restrict metrics_address to a trusted interface", "address", cfg.MetricsAddress)
+		}
 		metricsServer := &http.Server{
 			Addr:    cfg.MetricsAddress,
 			Handler: metricsMux,
@@ -97,8 +99,6 @@ func main() {
 	if cfg.Mode == "l7" {
 		l7Proxy := proxy.NewL7Proxy(pool)
 		mux := http.NewServeMux()
-		mux.HandleFunc("/admin/drain", pool.HandleDrain)
-		mux.HandleFunc("/drain", pool.HandleDrain)
 		if cfg.MetricsAddress == "" {
 			mux.Handle("/metrics", metrics.Handler())
 		}
