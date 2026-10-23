@@ -126,4 +126,3 @@ func (b *Backend) DecrConnections() {
 func (b *Backend) ActiveConnections() int64 {
 	return atomic.LoadInt64(&b.activeConns)
 }
-

@@ -460,4 +460,3 @@ func TestHotConfigReload(t *testing.T) {
 		t.Errorf("expected new backend b3 to receive traffic after reload, got 0 requests")
 	}
 }
-

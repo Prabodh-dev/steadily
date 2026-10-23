@@ -80,4 +80,3 @@ func init() {
 func Handler() http.Handler {
 	return promhttp.Handler()
 }
-
