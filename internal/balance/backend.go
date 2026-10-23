@@ -4,7 +4,7 @@ import (
 	"log/slog"
 	"sync/atomic"
 
-	"steadily/internal/metrics"
+	"github.com/Prabodh-dev/steadily/internal/metrics"
 )
 
 type HealthState int32
@@ -126,4 +126,3 @@ func (b *Backend) DecrConnections() {
 func (b *Backend) ActiveConnections() int64 {
 	return atomic.LoadInt64(&b.activeConns)
 }
-

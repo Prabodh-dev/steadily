@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"steadily/internal/config"
-	"steadily/internal/proxy"
+	"github.com/Prabodh-dev/steadily/internal/config"
+	"github.com/Prabodh-dev/steadily/internal/proxy"
 )
 
 func TestFailover500ConcurrentRequests(t *testing.T) {
@@ -460,4 +460,3 @@ func TestHotConfigReload(t *testing.T) {
 		t.Errorf("expected new backend b3 to receive traffic after reload, got 0 requests")
 	}
 }
-

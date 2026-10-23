@@ -44,7 +44,7 @@ stateDiagram-v2
 
 ## Connection Draining and Hot Reload Design
 
-1. **Connection Draining**: When a backend is removed from configuration or marked draining via `/admin/drain?backend=<name>`, its state transitions to `draining`. It immediately stops receiving new requests. Existing in-flight requests continue executing until completion or until `drain_timeout` expires, at which point the backend transitions to `removed`.
+1. **Connection Draining**: When a backend is removed from configuration or marked draining via `POST /admin/drain?backend=<name>` on the metrics listener, its state transitions to `draining`. It immediately stops receiving new requests. Existing in-flight requests continue executing until completion or until `drain_timeout` expires, at which point the backend transitions to `removed`.
 2. **Hot Config Reload**: Configuration changes trigger an atomic reload via `fsnotify` file watching or `SIGHUP` signal. Steadily updates backend pools, algorithms, and routing rules without dropping in-flight requests. Backends present in the old configuration but absent in the new configuration automatically enter draining mode rather than being dropped abruptly.
 
 ## L4 vs L7 Tradeoffs

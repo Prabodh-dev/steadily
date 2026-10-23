@@ -5,7 +5,7 @@ import (
 	"sync"
 	"testing"
 
-	"steadily/internal/balance"
+	"github.com/Prabodh-dev/steadily/internal/balance"
 )
 
 func TestRoundRobin(t *testing.T) {
@@ -183,4 +183,3 @@ func TestConsistentHashReshuffle(t *testing.T) {
 		t.Errorf("consistent hashing reshuffle rate higher than expected: %.2f%%", chPct)
 	}
 }
-

@@ -13,8 +13,8 @@ import (
 	"sync"
 	"time"
 
-	"steadily/internal/config"
-	"steadily/internal/proxy"
+	"github.com/Prabodh-dev/steadily/internal/config"
+	"github.com/Prabodh-dev/steadily/internal/proxy"
 )
 
 type BenchResult struct {
