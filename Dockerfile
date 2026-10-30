@@ -6,7 +6,7 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -o /app/steadily ./cmd/steadily
 RUN CGO_ENABLED=0 GOOS=linux go build -o /app/echo-backend ./backends/echo
 
-FROM alpine:3.20
+FROM alpine:3.24
 WORKDIR /app
 COPY --from=builder /app/steadily /app/steadily
 COPY --from=builder /app/echo-backend /app/echo-backend
